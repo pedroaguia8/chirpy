@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/pedroaguia8/chirpy/internal/auth"
 	"github.com/pedroaguia8/chirpy/internal/database"
 	"github.com/pedroaguia8/chirpy/internal/utils"
 )
@@ -19,6 +20,151 @@ type ApiConfig struct {
 	fileserverHits atomic.Int32
 	Db             *database.Queries
 	Platform       string
+}
+
+type User struct {
+	ID           uuid.UUID `json:"id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Email        string    `json:"email"`
+	PasswordHash string    `json:"-"`
+}
+
+func databaseUserToUser(dbUser database.User) User {
+	return User{
+		ID:           dbUser.ID,
+		CreatedAt:    dbUser.CreatedAt,
+		UpdatedAt:    dbUser.UpdatedAt,
+		Email:        dbUser.Email,
+		PasswordHash: dbUser.HashedPassword,
+	}
+}
+
+func (cfg *ApiConfig) CreateUser(w http.ResponseWriter, req *http.Request) {
+	type parameters struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+
+	decoder := json.NewDecoder(req.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		err := utils.RespondWithError(w, http.StatusInternalServerError, "Couldn't decode parameters")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+	if strings.TrimSpace(params.Email) == "" {
+		err := utils.RespondWithError(w, http.StatusBadRequest, "Email cannot be empty")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+	if strings.TrimSpace(params.Password) == "" {
+		err := utils.RespondWithError(w, http.StatusBadRequest, "Password cannot be empty")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	passwordHash, err := auth.HashPassword(params.Password)
+	if err != nil {
+		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to hash password")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	dbUser, err := cfg.Db.CreateUser(req.Context(), database.CreateUserParams{
+		Email:          params.Email,
+		HashedPassword: passwordHash,
+	})
+	if err != nil {
+		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to create user")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+	user := databaseUserToUser(dbUser)
+	err = utils.RespondWithJSON(w, http.StatusCreated, user)
+	if err != nil {
+		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to create user")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+}
+
+func (cfg *ApiConfig) Login(w http.ResponseWriter, req *http.Request) {
+	type parameters struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+
+	decoder := json.NewDecoder(req.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		err := utils.RespondWithError(w, http.StatusInternalServerError, "Couldn't decode input")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	dbUser, err := cfg.Db.GetUserByEmail(req.Context(), params.Email)
+	if err != nil {
+		err := utils.RespondWithError(w, http.StatusBadRequest, "Failed to login")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+	user := databaseUserToUser(dbUser)
+
+	match, err := auth.CheckPasswordHash(params.Password, user.PasswordHash)
+	if err != nil {
+		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to login")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	if !match {
+		err := utils.RespondWithError(w, http.StatusUnauthorized, "Incorrect email or password")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	err = utils.RespondWithJSON(w, http.StatusOK, user)
+	if err != nil {
+		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to login")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
 }
 
 type Chirp struct {
@@ -152,68 +298,6 @@ func (cfg *ApiConfig) GetChirp(w http.ResponseWriter, req *http.Request) {
 	err = utils.RespondWithJSON(w, http.StatusOK, chirp)
 	if err != nil {
 		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to get chirp")
-		if err != nil {
-			log.Printf("Failed to send error response to client: %v", err)
-			return
-		}
-		return
-	}
-}
-
-type User struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
-}
-
-func databaseUserToUser(dbUser database.User) User {
-	return User{
-		ID:        dbUser.ID,
-		CreatedAt: dbUser.CreatedAt,
-		UpdatedAt: dbUser.UpdatedAt,
-		Email:     dbUser.Email,
-	}
-}
-
-func (cfg *ApiConfig) CreateUser(w http.ResponseWriter, req *http.Request) {
-	type parameters struct {
-		Email string `json:"email"`
-	}
-
-	decoder := json.NewDecoder(req.Body)
-	params := parameters{}
-	err := decoder.Decode(&params)
-	if err != nil {
-		err := utils.RespondWithError(w, http.StatusInternalServerError, "Couldn't decode parameters")
-		if err != nil {
-			log.Printf("Failed to send error response to client: %v", err)
-			return
-		}
-		return
-	}
-	if strings.TrimSpace(params.Email) == "" {
-		err := utils.RespondWithError(w, http.StatusBadRequest, "Email cannot be empty")
-		if err != nil {
-			log.Printf("Failed to send error response to client: %v", err)
-			return
-		}
-		return
-	}
-
-	dbUser, err := cfg.Db.CreateUser(req.Context(), params.Email)
-	if err != nil {
-		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to create user")
-		if err != nil {
-			log.Printf("Failed to send error response to client: %v", err)
-			return
-		}
-		return
-	}
-	user := databaseUserToUser(dbUser)
-	err = utils.RespondWithJSON(w, http.StatusCreated, user)
-	if err != nil {
-		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to create user")
 		if err != nil {
 			log.Printf("Failed to send error response to client: %v", err)
 			return

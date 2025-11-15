@@ -32,10 +32,11 @@ func main() {
 	mux.Handle("GET /api/healthz", apiConfig.MiddlewareMetricsInc(http.HandlerFunc(handlers.Readiness)))
 	mux.Handle("POST /admin/reset", http.HandlerFunc(apiConfig.Reset))
 	mux.Handle("GET /admin/metrics", http.HandlerFunc(apiConfig.Metrics))
+	mux.Handle("POST /api/users", http.HandlerFunc(apiConfig.CreateUser))
+	mux.Handle("POST /api/login", http.HandlerFunc(apiConfig.Login))
 	mux.Handle("POST /api/chirps", http.HandlerFunc(apiConfig.CreateChirp))
 	mux.Handle("GET /api/chirps", http.HandlerFunc(apiConfig.GetChirps))
 	mux.Handle("GET /api/chirps/{chirpId}", http.HandlerFunc(apiConfig.GetChirp))
-	mux.Handle("POST /api/users", http.HandlerFunc(apiConfig.CreateUser))
 
 	server := http.Server{
 		Addr:    ":8080",
