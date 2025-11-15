@@ -27,7 +27,7 @@ func main() {
 	mux := http.NewServeMux()
 
 	// TODO: create specific folder for served files
-	handler := http.StripPrefix("/app/", http.FileServer(http.Dir(".")))
+	handler := http.StripPrefix("/app/", http.FileServer(http.Dir("app")))
 	mux.Handle("/app/", apiConfig.MiddlewareMetricsInc(handler))
 	mux.Handle("GET /api/healthz", apiConfig.MiddlewareMetricsInc(http.HandlerFunc(handlers.Readiness)))
 	mux.Handle("POST /admin/reset", http.HandlerFunc(apiConfig.Reset))
