@@ -23,6 +23,7 @@ func main() {
 	apiConfig := handlers.ApiConfig{}
 	apiConfig.Db = dbQueries
 	apiConfig.Platform = os.Getenv("PLATFORM")
+	apiConfig.JwtSecret = os.Getenv("JWT_SECRET")
 
 	mux := http.NewServeMux()
 

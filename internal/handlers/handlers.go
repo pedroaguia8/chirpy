@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -20,6 +21,7 @@ type ApiConfig struct {
 	fileserverHits atomic.Int32
 	Db             *database.Queries
 	Platform       string
+	JwtSecret      string
 }
 
 type User struct {
@@ -28,6 +30,7 @@ type User struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 	Email        string    `json:"email"`
 	PasswordHash string    `json:"-"`
+	Token        string    `json:"token"`
 }
 
 func databaseUserToUser(dbUser database.User) User {
@@ -110,8 +113,9 @@ func (cfg *ApiConfig) CreateUser(w http.ResponseWriter, req *http.Request) {
 
 func (cfg *ApiConfig) Login(w http.ResponseWriter, req *http.Request) {
 	type parameters struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		Email            string `json:"email"`
+		Password         string `json:"password"`
+		ExpiresInSeconds int    `json:"expires_in_seconds"`
 	}
 
 	decoder := json.NewDecoder(req.Body)
@@ -124,6 +128,27 @@ func (cfg *ApiConfig) Login(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		return
+	}
+
+	expiresInSecondsStr := strconv.Itoa(params.ExpiresInSeconds)
+	expiresIn, err := time.ParseDuration(expiresInSecondsStr + "s")
+	if err != nil {
+		err := utils.RespondWithError(w, http.StatusBadRequest, "Couldn't parse token expiration duration")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+	if expiresIn.Hours() > 1 || expiresIn.Seconds() == 0 {
+		expiresIn, err = time.ParseDuration("1h")
+		if err != nil {
+			err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to login")
+			if err != nil {
+				log.Printf("Failed to send error response to client: %v", err)
+				return
+			}
+		}
 	}
 
 	dbUser, err := cfg.Db.GetUserByEmail(req.Context(), params.Email)
@@ -156,6 +181,18 @@ func (cfg *ApiConfig) Login(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	token, err := auth.MakeJWT(user.ID, cfg.JwtSecret, expiresIn)
+	if err != nil {
+		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to login")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	user.Token = token
+
 	err = utils.RespondWithJSON(w, http.StatusOK, user)
 	if err != nil {
 		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to login")
@@ -187,8 +224,7 @@ func databaseChirpToChirp(dbChirp database.Chirp) Chirp {
 
 func (cfg *ApiConfig) CreateChirp(w http.ResponseWriter, req *http.Request) {
 	type parameters struct {
-		Body   string    `json:"body"`
-		UserId uuid.UUID `json:"user_id"`
+		Body string `json:"body"`
 	}
 
 	decoder := json.NewDecoder(req.Body)
@@ -196,6 +232,26 @@ func (cfg *ApiConfig) CreateChirp(w http.ResponseWriter, req *http.Request) {
 	err := decoder.Decode(&params)
 	if err != nil {
 		err := utils.RespondWithError(w, http.StatusInternalServerError, "couldn't decode parameters")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	token, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		err := utils.RespondWithError(w, http.StatusBadRequest, "Bad authorization header")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	userId, err := auth.ValidateJWT(token, cfg.JwtSecret)
+	if err != nil {
+		err := utils.RespondWithError(w, http.StatusUnauthorized, "Failed to validate user")
 		if err != nil {
 			log.Printf("Failed to send error response to client: %v", err)
 			return
@@ -216,7 +272,7 @@ func (cfg *ApiConfig) CreateChirp(w http.ResponseWriter, req *http.Request) {
 
 	dbChirp, err := cfg.Db.CreateChirp(req.Context(), database.CreateChirpParams{
 		Body:   cleanedBody,
-		UserID: params.UserId,
+		UserID: userId,
 	})
 	if err != nil {
 		// TODO: distinguish between different errs with help of db driver (do a switch case)
