@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -53,6 +52,7 @@ func (cfg *ApiConfig) CreateUser(w http.ResponseWriter, req *http.Request) {
 	params := parameters{}
 	err := decoder.Decode(&params)
 	if err != nil {
+		log.Printf("ERROR: Couldn't decode parameters: %v", err)
 		err := utils.RespondWithError(w, http.StatusInternalServerError, "Couldn't decode parameters")
 		if err != nil {
 			log.Printf("Failed to send error response to client: %v", err)
@@ -79,6 +79,7 @@ func (cfg *ApiConfig) CreateUser(w http.ResponseWriter, req *http.Request) {
 
 	passwordHash, err := auth.HashPassword(params.Password)
 	if err != nil {
+		log.Printf("ERROR: Failed to hash password: %v", err)
 		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to hash password")
 		if err != nil {
 			log.Printf("Failed to send error response to client: %v", err)
@@ -103,12 +104,7 @@ func (cfg *ApiConfig) CreateUser(w http.ResponseWriter, req *http.Request) {
 	user := databaseUserToUser(dbUser)
 	err = utils.RespondWithJSON(w, http.StatusCreated, user)
 	if err != nil {
-		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to create user")
-		if err != nil {
-			log.Printf("Failed to send error response to client: %v", err)
-			return
-		}
-		return
+		log.Printf("ERROR: Failed to write JSON response: %v", err)
 	}
 }
 
@@ -123,6 +119,7 @@ func (cfg *ApiConfig) Login(w http.ResponseWriter, req *http.Request) {
 	params := parameters{}
 	err := decoder.Decode(&params)
 	if err != nil {
+		log.Printf("ERROR: Couldn't decode login parameters: %v", err)
 		err := utils.RespondWithError(w, http.StatusInternalServerError, "Couldn't decode input")
 		if err != nil {
 			log.Printf("Failed to send error response to client: %v", err)
@@ -131,29 +128,14 @@ func (cfg *ApiConfig) Login(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	expiresInSecondsStr := strconv.Itoa(params.ExpiresInSeconds)
-	expiresIn, err := time.ParseDuration(expiresInSecondsStr + "s")
-	if err != nil {
-		err := utils.RespondWithError(w, http.StatusBadRequest, "Couldn't parse token expiration duration")
-		if err != nil {
-			log.Printf("Failed to send error response to client: %v", err)
-			return
-		}
-		return
-	}
-	if expiresIn.Hours() > 1 || expiresIn.Seconds() == 0 {
-		expiresIn, err = time.ParseDuration("1h")
-		if err != nil {
-			err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to login")
-			if err != nil {
-				log.Printf("Failed to send error response to client: %v", err)
-				return
-			}
-		}
+	expiresIn := time.Duration(params.ExpiresInSeconds) * time.Second
+	if expiresIn.Seconds() <= 0 || expiresIn.Hours() > 1 {
+		expiresIn = 1 * time.Hour
 	}
 
 	dbUser, err := cfg.Db.GetUserByEmail(req.Context(), params.Email)
 	if err != nil {
+		log.Printf("ERROR: Failed to get user by email %s: %v", params.Email, err)
 		err := utils.RespondWithError(w, http.StatusBadRequest, "Failed to login")
 		if err != nil {
 			log.Printf("Failed to send error response to client: %v", err)
@@ -165,6 +147,7 @@ func (cfg *ApiConfig) Login(w http.ResponseWriter, req *http.Request) {
 
 	match, err := auth.CheckPasswordHash(params.Password, user.PasswordHash)
 	if err != nil {
+		log.Printf("ERROR: Failed to check password hash: %v", err)
 		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to login")
 		if err != nil {
 			log.Printf("Failed to send error response to client: %v", err)
@@ -184,6 +167,7 @@ func (cfg *ApiConfig) Login(w http.ResponseWriter, req *http.Request) {
 
 	token, err := auth.MakeJWT(user.ID, cfg.JwtSecret, expiresIn)
 	if err != nil {
+		log.Printf("ERROR: Failed to create JWT: %v", err)
 		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to login")
 		if err != nil {
 			log.Printf("Failed to send error response to client: %v", err)
@@ -196,12 +180,7 @@ func (cfg *ApiConfig) Login(w http.ResponseWriter, req *http.Request) {
 
 	err = utils.RespondWithJSON(w, http.StatusOK, user)
 	if err != nil {
-		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to login")
-		if err != nil {
-			log.Printf("Failed to send error response to client: %v", err)
-			return
-		}
-		return
+		log.Printf("ERROR: Failed to write JSON response: %v", err)
 	}
 }
 
@@ -232,6 +211,7 @@ func (cfg *ApiConfig) CreateChirp(w http.ResponseWriter, req *http.Request) {
 	params := parameters{}
 	err := decoder.Decode(&params)
 	if err != nil {
+		log.Printf("ERROR: Couldn't decode chirp parameters: %v", err)
 		err := utils.RespondWithError(w, http.StatusInternalServerError, "couldn't decode parameters")
 		if err != nil {
 			log.Printf("Failed to send error response to client: %v", err)
@@ -276,7 +256,7 @@ func (cfg *ApiConfig) CreateChirp(w http.ResponseWriter, req *http.Request) {
 		UserID: userId,
 	})
 	if err != nil {
-		// TODO: distinguish between different errs with help of db driver (do a switch case)
+		log.Printf("ERROR: Failed to create chirp in database: %v", err)
 		err := utils.RespondWithError(w, http.StatusBadRequest, "Failed to post chirp")
 		if err != nil {
 			log.Printf("Failed to send error response to client: %v", err)
@@ -288,7 +268,7 @@ func (cfg *ApiConfig) CreateChirp(w http.ResponseWriter, req *http.Request) {
 
 	err = utils.RespondWithJSON(w, http.StatusCreated, chirp)
 	if err != nil {
-		log.Printf("Failed to respond with json payload: %v", err)
+		log.Printf("ERROR: Failed to write JSON response: %v", err)
 	}
 }
 
@@ -305,6 +285,7 @@ func validateChirp(chirp string) error {
 func (cfg *ApiConfig) GetChirps(w http.ResponseWriter, req *http.Request) {
 	dbChirps, err := cfg.Db.GetChirps(req.Context())
 	if err != nil {
+		log.Printf("ERROR: Failed to get chirps from database: %v", err)
 		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to get chirps")
 		if err != nil {
 			log.Printf("Failed to send error response to client: %v", err)
@@ -320,12 +301,7 @@ func (cfg *ApiConfig) GetChirps(w http.ResponseWriter, req *http.Request) {
 
 	err = utils.RespondWithJSON(w, http.StatusOK, chirps)
 	if err != nil {
-		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to get chirps")
-		if err != nil {
-			log.Printf("Failed to send error response to client: %v", err)
-			return
-		}
-		return
+		log.Printf("ERROR: Failed to write JSON response: %v", err)
 	}
 }
 
@@ -354,12 +330,7 @@ func (cfg *ApiConfig) GetChirp(w http.ResponseWriter, req *http.Request) {
 	chirp := databaseChirpToChirp(dbChirp)
 	err = utils.RespondWithJSON(w, http.StatusOK, chirp)
 	if err != nil {
-		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to get chirp")
-		if err != nil {
-			log.Printf("Failed to send error response to client: %v", err)
-			return
-		}
-		return
+		log.Printf("ERROR: Failed to write JSON response: %v", err)
 	}
 }
 
@@ -373,6 +344,7 @@ func (cfg *ApiConfig) Reset(w http.ResponseWriter, req *http.Request) {
 
 	err := cfg.Db.DeleteUsers(req.Context())
 	if err != nil {
+		log.Printf("ERROR: Failed to delete users: %v", err)
 		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to delete users")
 		if err != nil {
 			log.Printf("Failed to send error response to client: %v", err)
