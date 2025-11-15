@@ -126,6 +126,40 @@ func (cfg *ApiConfig) GetChirps(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+func (cfg *ApiConfig) GetChirp(w http.ResponseWriter, req *http.Request) {
+	chirpIdStr := req.PathValue("chirpId")
+	chirpId, err := uuid.Parse(chirpIdStr)
+	if err != nil {
+		err := utils.RespondWithError(w, http.StatusBadRequest, "Invalid chirp id")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	dbChirp, err := cfg.Db.GetChirp(req.Context(), chirpId)
+	if err != nil {
+		err := utils.RespondWithError(w, http.StatusNotFound, "Failed to find chirp")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	chirp := databaseChirpToChirp(dbChirp)
+	err = utils.RespondWithJSON(w, http.StatusOK, chirp)
+	if err != nil {
+		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to get chirp")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+}
+
 type User struct {
 	ID        uuid.UUID `json:"id"`
 	CreatedAt time.Time `json:"created_at"`
