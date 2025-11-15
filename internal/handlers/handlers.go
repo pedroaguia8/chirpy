@@ -21,13 +21,21 @@ type ApiConfig struct {
 	Platform       string
 }
 
-func Readiness(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
+type Chirp struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body      string    `json:"body"`
+	UserId    uuid.UUID `json:"user_id"`
+}
 
-	_, err := w.Write([]byte("OK"))
-	if err != nil {
-		log.Println("error writing response body: %w", err)
+func databaseChirpToChirp(dbChirp database.Chirp) Chirp {
+	return Chirp{
+		ID:        dbChirp.ID,
+		CreatedAt: dbChirp.CreatedAt,
+		UpdatedAt: dbChirp.UpdatedAt,
+		Body:      dbChirp.Body,
+		UserId:    dbChirp.UserID,
 	}
 }
 
@@ -91,21 +99,30 @@ func validateChirp(chirp string) error {
 	return nil
 }
 
-type Chirp struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Body      string    `json:"body"`
-	UserId    uuid.UUID `json:"user_id"`
-}
+func (cfg *ApiConfig) GetChirps(w http.ResponseWriter, req *http.Request) {
+	dbChirps, err := cfg.Db.GetChirps(req.Context())
+	if err != nil {
+		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to get chirps")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
 
-func databaseChirpToChirp(dbChirp database.Chirp) Chirp {
-	return Chirp{
-		ID:        dbChirp.ID,
-		CreatedAt: dbChirp.CreatedAt,
-		UpdatedAt: dbChirp.UpdatedAt,
-		Body:      dbChirp.Body,
-		UserId:    dbChirp.UserID,
+	chirps := []Chirp{}
+	for _, dbChirp := range dbChirps {
+		chirps = append(chirps, databaseChirpToChirp(dbChirp))
+	}
+
+	err = utils.RespondWithJSON(w, http.StatusOK, chirps)
+	if err != nil {
+		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to get chirps")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
 	}
 }
 
@@ -114,6 +131,15 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Email     string    `json:"email"`
+}
+
+func databaseUserToUser(dbUser database.User) User {
+	return User{
+		ID:        dbUser.ID,
+		CreatedAt: dbUser.CreatedAt,
+		UpdatedAt: dbUser.UpdatedAt,
+		Email:     dbUser.Email,
+	}
 }
 
 func (cfg *ApiConfig) CreateUser(w http.ResponseWriter, req *http.Request) {
@@ -162,15 +188,6 @@ func (cfg *ApiConfig) CreateUser(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func databaseUserToUser(dbUser database.User) User {
-	return User{
-		ID:        dbUser.ID,
-		CreatedAt: dbUser.CreatedAt,
-		UpdatedAt: dbUser.UpdatedAt,
-		Email:     dbUser.Email,
-	}
-}
-
 func (cfg *ApiConfig) Reset(w http.ResponseWriter, req *http.Request) {
 	if cfg.Platform != "dev" {
 		w.WriteHeader(http.StatusForbidden)
@@ -191,4 +208,14 @@ func (cfg *ApiConfig) Reset(w http.ResponseWriter, req *http.Request) {
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
+}
+
+func Readiness(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+
+	_, err := w.Write([]byte("OK"))
+	if err != nil {
+		log.Println("error writing response body: %w", err)
+	}
 }

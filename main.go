@@ -33,6 +33,7 @@ func main() {
 	mux.Handle("POST /admin/reset", http.HandlerFunc(apiConfig.Reset))
 	mux.Handle("GET /admin/metrics", http.HandlerFunc(apiConfig.Metrics))
 	mux.Handle("POST /api/chirps", http.HandlerFunc(apiConfig.CreateChirp))
+	mux.Handle("GET /api/chirps", http.HandlerFunc(apiConfig.GetChirps))
 	mux.Handle("POST /api/users", http.HandlerFunc(apiConfig.CreateUser))
 
 	server := http.Server{
