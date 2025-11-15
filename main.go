@@ -18,7 +18,18 @@ func main() {
 		log.Fatal("Couldn't load environment variables from .env file")
 	}
 	dbURL := os.Getenv("DB_URL")
+
 	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Fatalf("Couldn't connect to database: %v", err)
+	}
+	defer func(db *sql.DB) {
+		err := db.Close()
+		if err != nil {
+			log.Fatalf("Couldn't close database: %v", err)
+		}
+	}(db)
+
 	dbQueries := database.New(db)
 	apiConfig := handlers.ApiConfig{}
 	apiConfig.Db = dbQueries

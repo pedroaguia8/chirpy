@@ -92,8 +92,9 @@ func (cfg *ApiConfig) CreateUser(w http.ResponseWriter, req *http.Request) {
 		HashedPassword: passwordHash,
 	})
 	if err != nil {
-		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to create user")
-		if err != nil {
+		log.Printf("ERROR: Failed to create user in database: %v", err)
+		respErr := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to create user")
+		if respErr != nil {
 			log.Printf("Failed to send error response to client: %v", err)
 			return
 		}
