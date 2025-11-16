@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"log"
@@ -30,6 +31,7 @@ type User struct {
 	Email        string    `json:"email"`
 	PasswordHash string    `json:"-"`
 	Token        string    `json:"token"`
+	RefreshToken string    `json:"refresh_token"`
 }
 
 func databaseUserToUser(dbUser database.User) User {
@@ -110,9 +112,8 @@ func (cfg *ApiConfig) CreateUser(w http.ResponseWriter, req *http.Request) {
 
 func (cfg *ApiConfig) Login(w http.ResponseWriter, req *http.Request) {
 	type parameters struct {
-		Email            string `json:"email"`
-		Password         string `json:"password"`
-		ExpiresInSeconds int    `json:"expires_in_seconds"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 
 	decoder := json.NewDecoder(req.Body)
@@ -128,9 +129,15 @@ func (cfg *ApiConfig) Login(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	expiresIn := time.Duration(params.ExpiresInSeconds) * time.Second
-	if expiresIn.Seconds() <= 0 || expiresIn.Hours() > 1 {
-		expiresIn = 1 * time.Hour
+	expiresIn, err := time.ParseDuration("1h")
+	if err != nil {
+		log.Printf("ERROR: Couldn't token expiration duration: %v", err)
+		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to login")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
 	}
 
 	dbUser, err := cfg.Db.GetUserByEmail(req.Context(), params.Email)
@@ -178,7 +185,101 @@ func (cfg *ApiConfig) Login(w http.ResponseWriter, req *http.Request) {
 
 	user.Token = token
 
+	refreshToken, err := auth.MakeRefreshToken()
+	if err != nil {
+		log.Printf("ERROR: Failed to make refresh token: %v", err)
+		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to login")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	savedRefreshToken, err := cfg.Db.CreateRefreshToken(req.Context(), database.CreateRefreshTokenParams{
+		Token:  refreshToken,
+		UserID: user.ID,
+		ExpiresAt: sql.NullTime{
+			Time:  time.Now().AddDate(0, 0, 60),
+			Valid: true,
+		},
+	})
+	if err != nil {
+		log.Printf("ERROR: Failed to save refresh token: %v", err)
+		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to login")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	user.RefreshToken = savedRefreshToken.Token
+
 	err = utils.RespondWithJSON(w, http.StatusOK, user)
+	if err != nil {
+		log.Printf("ERROR: Failed to write JSON response: %v", err)
+	}
+}
+
+func (cfg *ApiConfig) RefreshToken(w http.ResponseWriter, req *http.Request) {
+	refreshToken, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		log.Printf("ERROR: Failed to get bearer token from header: %v", err)
+		err := utils.RespondWithError(w, http.StatusBadRequest, "Bad request: failed to find refresh token")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	dbRefreshToken, err := cfg.Db.GetRefreshToken(req.Context(), refreshToken)
+	if err != nil {
+		log.Printf("ERROR: Failed to get refresh token from database: %v", err)
+		err := utils.RespondWithError(w, http.StatusUnauthorized, "Failed to refresh token")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	if dbRefreshToken.ExpiresAt.Time.Before(time.Now()) || dbRefreshToken.RevokedAt.Valid == true {
+		err := utils.RespondWithError(w, http.StatusUnauthorized, "Failed to refresh token")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+	}
+
+	dbUser, err := cfg.Db.GetUserFromRefreshToken(req.Context(), refreshToken)
+	if err != nil {
+		log.Printf("ERROR: Failed to get user from database: %v", err)
+		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to refresh token")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	token, err := auth.MakeJWT(dbUser.ID, cfg.JwtSecret, time.Hour)
+	if err != nil {
+		log.Printf("ERROR: Failed to make jwt token: %v", err)
+		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to refresh token")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	type response struct {
+		Token string `json:"token"`
+	}
+
+	err = utils.RespondWithJSON(w, http.StatusOK, response{Token: token})
 	if err != nil {
 		log.Printf("ERROR: Failed to write JSON response: %v", err)
 	}

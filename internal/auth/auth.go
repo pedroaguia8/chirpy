@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -76,7 +78,6 @@ func GetBearerToken(headers http.Header) (string, error) {
 	}
 
 	headerFields := strings.Fields(header)
-	token := headerFields[1]
 
 	if len(headerFields) != 2 {
 		return "", errors.New("wrong authorization header format")
@@ -84,6 +85,20 @@ func GetBearerToken(headers http.Header) (string, error) {
 	if headerFields[0] != "Bearer" {
 		return "", errors.New("wrong authorization token type")
 	}
+
+	token := headerFields[1]
+
+	return token, nil
+}
+
+func MakeRefreshToken() (string, error) {
+	randomData := make([]byte, 32)
+	_, err := rand.Read(randomData)
+	if err != nil {
+		return "", errors.New("failed to generate random bytes")
+	}
+
+	token := hex.EncodeToString(randomData)
 
 	return token, nil
 }
