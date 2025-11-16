@@ -251,6 +251,7 @@ func (cfg *ApiConfig) RefreshToken(w http.ResponseWriter, req *http.Request) {
 			log.Printf("Failed to send error response to client: %v", err)
 			return
 		}
+		return
 	}
 
 	dbUser, err := cfg.Db.GetUserFromRefreshToken(req.Context(), refreshToken)
@@ -283,6 +284,53 @@ func (cfg *ApiConfig) RefreshToken(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		log.Printf("ERROR: Failed to write JSON response: %v", err)
 	}
+}
+
+func (cfg *ApiConfig) RevokeRefreshToken(w http.ResponseWriter, req *http.Request) {
+	refreshToken, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		log.Printf("ERROR: Failed to get bearer token from header: %v", err)
+		err := utils.RespondWithError(w, http.StatusBadRequest, "Bad request: failed to find refresh token")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	dbRefreshToken, err := cfg.Db.GetRefreshToken(req.Context(), refreshToken)
+	if err != nil {
+		log.Printf("ERROR: Failed to get refresh token from database: %v", err)
+		err := utils.RespondWithError(w, http.StatusUnauthorized, "Failed to revoke token")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	if dbRefreshToken.ExpiresAt.Time.Before(time.Now()) || dbRefreshToken.RevokedAt.Valid == true {
+		err := utils.RespondWithError(w, http.StatusUnauthorized, "Failed to revoke token")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	err = cfg.Db.RevokeRefreshToken(req.Context(), refreshToken)
+	if err != nil {
+		log.Printf("ERROR: Failed to get revoke refresh token in database: %v", err)
+		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to revoke token")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type Chirp struct {

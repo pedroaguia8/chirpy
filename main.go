@@ -50,6 +50,7 @@ func main() {
 	mux.Handle("GET /api/chirps", http.HandlerFunc(apiConfig.GetChirps))
 	mux.Handle("GET /api/chirps/{chirpId}", http.HandlerFunc(apiConfig.GetChirp))
 	mux.Handle("POST /api/refresh", http.HandlerFunc(apiConfig.RefreshToken))
+	mux.Handle("POST /api/revoke", http.HandlerFunc(apiConfig.RevokeRefreshToken))
 
 	server := http.Server{
 		Addr:    ":8080",
