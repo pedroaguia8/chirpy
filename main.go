@@ -35,6 +35,7 @@ func main() {
 	apiConfig.Db = dbQueries
 	apiConfig.Platform = os.Getenv("PLATFORM")
 	apiConfig.JwtSecret = os.Getenv("JWT_SECRET")
+	apiConfig.PolkaKey = os.Getenv("POLKA_KEY")
 
 	mux := http.NewServeMux()
 

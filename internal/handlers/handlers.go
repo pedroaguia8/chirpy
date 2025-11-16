@@ -22,6 +22,7 @@ type ApiConfig struct {
 	Db             *database.Queries
 	Platform       string
 	JwtSecret      string
+	PolkaKey       string
 }
 
 type User struct {
@@ -218,6 +219,27 @@ func (cfg *ApiConfig) UpdateUserEmailPassword(w http.ResponseWriter, req *http.R
 }
 
 func (cfg *ApiConfig) UpgradeUser(w http.ResponseWriter, req *http.Request) {
+	polkaKey, err := auth.GetAPIKey(req.Header)
+	if err != nil {
+		log.Printf("ERROR: Couldn't parse polka api key: %v", err)
+		err := utils.RespondWithError(w, http.StatusBadRequest, "Couldn't parse API key")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	if polkaKey != cfg.PolkaKey {
+		log.Printf("ERROR: Incorrect Polka API key: %v", err)
+		err := utils.RespondWithError(w, http.StatusUnauthorized, "Incorrect API key")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
 	type parameters struct {
 		Event string `json:"event"`
 		Data  struct {
@@ -227,7 +249,7 @@ func (cfg *ApiConfig) UpgradeUser(w http.ResponseWriter, req *http.Request) {
 
 	decoder := json.NewDecoder(req.Body)
 	params := parameters{}
-	err := decoder.Decode(&params)
+	err = decoder.Decode(&params)
 	if err != nil {
 		log.Printf("ERROR: Couldn't decode request parameters: %v", err)
 		err := utils.RespondWithError(w, http.StatusBadRequest, "Couldn't decode input")
