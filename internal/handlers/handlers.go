@@ -262,12 +262,8 @@ func (cfg *ApiConfig) UpgradeUser(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if params.Event != "user.upgraded" {
-		log.Printf("ERROR: Webhook event not recognized: %v", err)
-		err := utils.RespondWithError(w, http.StatusBadRequest, "Failed to upgrade user")
-		if err != nil {
-			log.Printf("Failed to send error response to client: %v", err)
-			return
-		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
