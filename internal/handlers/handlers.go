@@ -34,6 +34,13 @@ type User struct {
 	RefreshToken string    `json:"refresh_token"`
 }
 
+type UserResponse struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string    `json:"email"`
+}
+
 func databaseUserToUser(dbUser database.User) User {
 	return User{
 		ID:           dbUser.ID,
@@ -107,6 +114,103 @@ func (cfg *ApiConfig) CreateUser(w http.ResponseWriter, req *http.Request) {
 	err = utils.RespondWithJSON(w, http.StatusCreated, user)
 	if err != nil {
 		log.Printf("ERROR: Failed to write JSON response: %v", err)
+	}
+}
+
+func (cfg *ApiConfig) UpdateUserEmailPassword(w http.ResponseWriter, req *http.Request) {
+	type parameters struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+
+	decoder := json.NewDecoder(req.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		log.Printf("ERROR: Couldn't decode parameters: %v", err)
+		err := utils.RespondWithError(w, http.StatusBadRequest, "Couldn't decode parameters")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+	if strings.TrimSpace(params.Email) == "" {
+		err := utils.RespondWithError(w, http.StatusBadRequest, "Email cannot be empty")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+	if strings.TrimSpace(params.Password) == "" {
+		err := utils.RespondWithError(w, http.StatusBadRequest, "Password cannot be empty")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	passwordHash, err := auth.HashPassword(params.Password)
+	if err != nil {
+		log.Printf("ERROR: Failed to hash password: %v", err)
+		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to hash password")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	token, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		log.Printf("ERROR: Failed to get access token from header: %v", err)
+		err := utils.RespondWithError(w, http.StatusUnauthorized, "Bad request: failed to find access token")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	userId, err := auth.ValidateJWT(token, cfg.JwtSecret)
+	if err != nil {
+		log.Printf("ERROR: Failed to validate jwt token: %v", err)
+		err := utils.RespondWithError(w, http.StatusUnauthorized, "Bad request: bad access token")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	dbUser, err := cfg.Db.UpdateUserEmailPassword(req.Context(), database.UpdateUserEmailPasswordParams{
+		Email:          params.Email,
+		HashedPassword: passwordHash,
+		ID:             userId,
+	})
+	if err != nil {
+		log.Printf("ERROR: Failed to update user's email and password: %v", err)
+		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to update user")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	response := UserResponse{
+		ID:        dbUser.ID,
+		CreatedAt: dbUser.CreatedAt,
+		UpdatedAt: dbUser.UpdatedAt,
+		Email:     dbUser.Email,
+	}
+
+	err = utils.RespondWithJSON(w, http.StatusOK, response)
+	if err != nil {
+		log.Printf("Failed to send response to client: %v", err)
+		return
 	}
 }
 

@@ -110,3 +110,29 @@ func (q *Queries) GetUserFromRefreshToken(ctx context.Context, token string) (Ge
 	)
 	return i, err
 }
+
+const updateUserEmailPassword = `-- name: UpdateUserEmailPassword :one
+UPDATE users
+SET email = $1, hashed_password = $2
+WHERE id = $3
+RETURNING id, created_at, updated_at, email, hashed_password
+`
+
+type UpdateUserEmailPasswordParams struct {
+	Email          string
+	HashedPassword string
+	ID             uuid.UUID
+}
+
+func (q *Queries) UpdateUserEmailPassword(ctx context.Context, arg UpdateUserEmailPasswordParams) (User, error) {
+	row := q.db.QueryRowContext(ctx, updateUserEmailPassword, arg.Email, arg.HashedPassword, arg.ID)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Email,
+		&i.HashedPassword,
+	)
+	return i, err
+}

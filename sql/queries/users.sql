@@ -22,3 +22,9 @@ INNER JOIN refresh_tokens
 ON users.id = refresh_tokens.user_id
 WHERE refresh_tokens.token = $1
 LIMIT 1;
+
+-- name: UpdateUserEmailPassword :one
+UPDATE users
+SET email = $1, hashed_password = $2
+WHERE id = $3
+RETURNING *;

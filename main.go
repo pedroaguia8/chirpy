@@ -51,6 +51,7 @@ func main() {
 	mux.Handle("GET /api/chirps/{chirpId}", http.HandlerFunc(apiConfig.GetChirp))
 	mux.Handle("POST /api/refresh", http.HandlerFunc(apiConfig.RefreshToken))
 	mux.Handle("POST /api/revoke", http.HandlerFunc(apiConfig.RevokeRefreshToken))
+	mux.Handle("PUT /api/users", http.HandlerFunc(apiConfig.UpdateUserEmailPassword))
 
 	server := http.Server{
 		Addr:    ":8080",
