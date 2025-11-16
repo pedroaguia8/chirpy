@@ -587,6 +587,77 @@ func (cfg *ApiConfig) GetChirp(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+func (cfg *ApiConfig) DeleteChirp(w http.ResponseWriter, req *http.Request) {
+	chirpIdStr := req.PathValue("chirpId")
+	chirpId, err := uuid.Parse(chirpIdStr)
+	if err != nil {
+		log.Printf("ERROR: Failed to parse chird id: %v", err)
+		err := utils.RespondWithError(w, http.StatusBadRequest, "Invalid chirp id")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	token, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		log.Printf("ERROR: Failed to get bearer token: %v", err)
+		err := utils.RespondWithError(w, http.StatusBadRequest, "Bad authorization header")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	userId, err := auth.ValidateJWT(token, cfg.JwtSecret)
+	if err != nil {
+		log.Printf("ERROR: Failed to validate jwt token: %v", err)
+		err := utils.RespondWithError(w, http.StatusForbidden, "Failed to validate user")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	chirp, err := cfg.Db.GetChirp(req.Context(), chirpId)
+	if err != nil {
+		log.Printf("ERROR: Failed to get chirp from database: %v", err)
+		err := utils.RespondWithError(w, http.StatusNotFound, "Chirp not found")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	if chirp.UserID != userId {
+		log.Printf("ERROR: Chirp's user id didn't match with user id from request: %v", err)
+		err := utils.RespondWithError(w, http.StatusForbidden, "Failed to delete chirp")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	err = cfg.Db.DeleteChirp(req.Context(), chirp.ID)
+	if err != nil {
+		log.Printf("ERROR: Failed to delete chirp in database: %v", err)
+		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to delete chirp")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (cfg *ApiConfig) Reset(w http.ResponseWriter, req *http.Request) {
 	if cfg.Platform != "dev" {
 		w.WriteHeader(http.StatusForbidden)
