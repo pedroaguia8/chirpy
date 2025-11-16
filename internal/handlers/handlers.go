@@ -32,13 +32,7 @@ type User struct {
 	PasswordHash string    `json:"-"`
 	Token        string    `json:"token"`
 	RefreshToken string    `json:"refresh_token"`
-}
-
-type UserResponse struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
+	IsUpgraded   bool      `json:"is_upgraded"`
 }
 
 func databaseUserToUser(dbUser database.User) User {
@@ -48,6 +42,7 @@ func databaseUserToUser(dbUser database.User) User {
 		UpdatedAt:    dbUser.UpdatedAt,
 		Email:        dbUser.Email,
 		PasswordHash: dbUser.HashedPassword,
+		IsUpgraded:   dbUser.IsUpgraded,
 	}
 }
 
@@ -200,18 +195,83 @@ func (cfg *ApiConfig) UpdateUserEmailPassword(w http.ResponseWriter, req *http.R
 		return
 	}
 
-	response := UserResponse{
-		ID:        dbUser.ID,
-		CreatedAt: dbUser.CreatedAt,
-		UpdatedAt: dbUser.UpdatedAt,
-		Email:     dbUser.Email,
+	type response struct {
+		ID         uuid.UUID `json:"id"`
+		CreatedAt  time.Time `json:"created_at"`
+		UpdatedAt  time.Time `json:"updated_at"`
+		Email      string    `json:"email"`
+		IsUpgraded bool      `json:"is_upgraded"`
+	}
+	res := response{
+		ID:         dbUser.ID,
+		CreatedAt:  dbUser.CreatedAt,
+		UpdatedAt:  dbUser.UpdatedAt,
+		Email:      dbUser.Email,
+		IsUpgraded: dbUser.IsUpgraded,
 	}
 
-	err = utils.RespondWithJSON(w, http.StatusOK, response)
+	err = utils.RespondWithJSON(w, http.StatusOK, res)
 	if err != nil {
 		log.Printf("Failed to send response to client: %v", err)
 		return
 	}
+}
+
+func (cfg *ApiConfig) UpgradeUser(w http.ResponseWriter, req *http.Request) {
+	type parameters struct {
+		Event string `json:"event"`
+		Data  struct {
+			UserId string `json:"user_id"`
+		} `json:"data"`
+	}
+
+	decoder := json.NewDecoder(req.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		log.Printf("ERROR: Couldn't decode request parameters: %v", err)
+		err := utils.RespondWithError(w, http.StatusBadRequest, "Couldn't decode input")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	if params.Event != "user.upgraded" {
+		log.Printf("ERROR: Webhook event not recognized: %v", err)
+		err := utils.RespondWithError(w, http.StatusBadRequest, "Failed to upgrade user")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	userId, err := uuid.Parse(params.Data.UserId)
+	if err != nil {
+		log.Printf("ERROR: Failed to parse uuid: %v", err)
+		err := utils.RespondWithError(w, http.StatusBadRequest, "Failed to parse user id")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	_, err = cfg.Db.UpgradeUser(req.Context(), userId)
+	if err != nil {
+		log.Printf("ERROR: Failed to upgrade user in database: %v", err)
+		err := utils.RespondWithError(w, http.StatusNotFound, "User not found")
+		if err != nil {
+			log.Printf("Failed to send error response to client: %v", err)
+			return
+		}
+		return
+	}
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (cfg *ApiConfig) Login(w http.ResponseWriter, req *http.Request) {

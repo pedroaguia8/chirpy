@@ -25,6 +25,12 @@ LIMIT 1;
 
 -- name: UpdateUserEmailPassword :one
 UPDATE users
-SET email = $1, hashed_password = $2
+SET email = $1, hashed_password = $2, updated_at = NOW()
 WHERE id = $3
+RETURNING *;
+
+-- name: UpgradeUser :one
+UPDATE users
+SET is_upgraded = TRUE, updated_at = NOW()
+WHERE id = $1
 RETURNING *;
