@@ -618,15 +618,44 @@ func validateChirp(chirp string) error {
 }
 
 func (cfg *ApiConfig) GetChirps(w http.ResponseWriter, req *http.Request) {
-	dbChirps, err := cfg.Db.GetChirps(req.Context())
-	if err != nil {
-		log.Printf("ERROR: Failed to get chirps from database: %v", err)
-		err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to get chirps")
+	authorIdStr := req.URL.Query().Get("author_id")
+
+	dbChirps := []database.Chirp{}
+	var err error
+
+	if authorIdStr == "" {
+		dbChirps, err = cfg.Db.GetChirps(req.Context())
 		if err != nil {
-			log.Printf("Failed to send error response to client: %v", err)
+			log.Printf("ERROR: Failed to get chirps from database: %v", err)
+			err := utils.RespondWithError(w, http.StatusInternalServerError, "Failed to get chirps")
+			if err != nil {
+				log.Printf("Failed to send error response to client: %v", err)
+				return
+			}
 			return
 		}
-		return
+	} else {
+		authorId, err := uuid.Parse(authorIdStr)
+		if err != nil {
+			log.Printf("ERROR: Failed to parse author id to UUID: %v", err)
+			err := utils.RespondWithError(w, http.StatusBadRequest, "Bad author id")
+			if err != nil {
+				log.Printf("Failed to send error response to client: %v", err)
+				return
+			}
+			return
+		}
+
+		dbChirps, err = cfg.Db.GetChirpsByAuthorId(req.Context(), authorId)
+		if err != nil {
+			log.Printf("ERROR: Failed to get chirps from database: %v", err)
+			err := utils.RespondWithError(w, http.StatusNotFound, "Failed to get chirps for that author")
+			if err != nil {
+				log.Printf("Failed to send error response to client: %v", err)
+				return
+			}
+			return
+		}
 	}
 
 	chirps := []Chirp{}
