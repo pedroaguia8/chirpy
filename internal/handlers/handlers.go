@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -656,6 +657,13 @@ func (cfg *ApiConfig) GetChirps(w http.ResponseWriter, req *http.Request) {
 			}
 			return
 		}
+	}
+
+	sortOrder := req.URL.Query().Get("sort")
+	if sortOrder == "desc" {
+		sort.Slice(dbChirps, func(i, j int) bool {
+			return dbChirps[i].CreatedAt.After(dbChirps[j].CreatedAt)
+		})
 	}
 
 	chirps := []Chirp{}
